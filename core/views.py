@@ -95,6 +95,7 @@ class RegisterView(views.APIView):
                     )
                     p.avatar.save(filename, data_file, save=False)
                 except Exception:
+                    # avatar bilan muammo bo'lsa, foydalanuvchini baribir yaratamiz
                     pass
         p.save()
 
@@ -217,15 +218,65 @@ class MessageViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
+        """
+        Faqat shu userga tegishli xabarlar.
+        Agar ?with=<user_id> bo‘lsa – aniq dialog bo‘yicha filter.
+        Agar ?unread=1 bo‘lsa – faqat o‘qilmaganlar.
+        """
         user = self.request.user
-        return Message.objects.filter(
+        qs = Message.objects.filter(
             Q(to_user=user) | Q(from_user=user)
-        ).order_by("created_at")
+        )
+
+        other_id = self.request.query_params.get("with")
+        if other_id:
+            qs = qs.filter(
+                Q(to_user_id=other_id, from_user=user)
+                | Q(from_user_id=other_id, to_user=user)
+            )
+
+        unread_only = self.request.query_params.get("unread")
+        if str(unread_only) in ("1", "true", "True"):
+            qs = qs.filter(to_user=user, read=False)
+
+        return qs.order_by("created_at")
 
     def perform_create(self, serializer):
-        # from_user ni request.user dan olamiz
+        # from_user = request.user
         serializer.save(from_user=self.request.user)
 
+    @action(detail=False, methods=["post"], url_path="mark-read")
+    def mark_read(self, request):
+        """
+        POST /api/messages/mark-read/
+        body: { "with": <user_id> }
+
+        Shu user bilan bo‘lgan dialogdagi
+        "menga kelgan" o‘qilmagan xabarlarni read=True qiladi.
+        """
+        other_id = request.data.get("with")
+        if not other_id:
+            return Response(
+                {"detail": '"with" field is required'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            other_id = int(other_id)
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": '"with" must be integer user id'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user = request.user
+        qs = Message.objects.filter(
+            to_user=user,
+            from_user_id=other_id,
+            read=False,
+        )
+        updated_count = qs.update(read=True)
+        return Response({"updated": updated_count})
 
 # Badges: allow create/update/delete
 class BadgeViewSet(viewsets.ModelViewSet):
@@ -249,9 +300,11 @@ class BadgeViewSet(viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
+        # user clientdan emas, token bo'yicha olinadi
         serializer.save(user=self.request.user)
 
     def perform_update(self, serializer):
+        # yangilaganda ham userni request.user ga tenglab qo'yamiz
         serializer.save(user=self.request.user)
 
 

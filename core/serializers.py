@@ -1,4 +1,3 @@
-# core/serializers.py
 from rest_framework import serializers
 from django.contrib.auth.models import User
 from .models import Profile, Badge, Message, Resume
@@ -42,6 +41,7 @@ class ProfileSerializer(serializers.ModelSerializer):
 
         if hasattr(obj, "avatar") and getattr(obj, "avatar"):
             try:
+                # FieldFile bo'lsa, url atributidan olamiz
                 url = obj.avatar.url
             except Exception:
                 url = getattr(obj, "avatar", None)
@@ -119,11 +119,12 @@ class ProfileSerializer(serializers.ModelSerializer):
 
 
 class BadgeSerializer(serializers.ModelSerializer):
+    # user'ni frontdan yubormaymiz, backend o'zi qo'yadi
+    user = serializers.PrimaryKeyRelatedField(read_only=True)
     proof_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Badge
-        # modeldagi field nomlariga moslashtirdim
         fields = (
             "id",
             "user",
@@ -135,17 +136,40 @@ class BadgeSerializer(serializers.ModelSerializer):
             "created_at",
             "proof_url",
         )
+        read_only_fields = ("id", "user", "created_at", "proof_url")
 
     def get_proof_url(self, obj):
+        """
+        Faylni o'qib, decode qilmaymiz – faqat URL qaytaramiz.
+        Shunda binary fayl tufayli UnicodeDecodeError chiqmaydi.
+        """
         request = (
             self.context.get("request") if isinstance(self.context, dict) else None
         )
-        url = getattr(obj, "proof_url", None) or getattr(obj, "proof", None)
-        if callable(url):
+
+        url = None
+
+        # proof -> ImageField/FileField deb faraz qilamiz
+        proof_field = getattr(obj, "proof", None)
+        if proof_field:
             try:
-                url = url()
+                # FieldFile bo'lsa
+                url = proof_field.url
             except Exception:
-                url = None
+                # ehtimol oddiy string
+                url = str(proof_field)
+
+        # Agar modelda alohida proof_url property bo'lsa – undan ham foydalansak bo'ladi
+        if not url:
+            candidate = getattr(obj, "proof_url", None)
+            if callable(candidate):
+                try:
+                    url = candidate()
+                except Exception:
+                    url = None
+            elif isinstance(candidate, str):
+                url = candidate
+
         if url and request and isinstance(url, str) and url.startswith("/"):
             return request.build_absolute_uri(url)
         return url
@@ -189,7 +213,6 @@ class MessageSerializer(serializers.ModelSerializer):
         - to_id / to  -> to_user
         - body / message / content -> text
         """
-        # data QueryDict bo‘lishi mumkin, avval copy qilib olamiz
         if hasattr(data, "copy"):
             data = data.copy()
         else:
@@ -230,6 +253,7 @@ class ResumeSerializer(serializers.ModelSerializer):
     class Meta:
         model = Resume
         fields = ("id", "user", "filename", "file", "file_url", "created_at")
+        read_only_fields = ("id", "user", "created_at", "file_url")
 
     def get_file_url(self, obj):
         request = (

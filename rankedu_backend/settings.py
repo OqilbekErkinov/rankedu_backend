@@ -163,7 +163,7 @@ ALLOWED_HOSTS = [
 
 CSRF_TRUSTED_ORIGINS = [
     "https://rankedu-backend-wsmj-g.fly.dev",
-    "rankedu-backend-production.up.railway.app",
+    "https://rankedu-backend-production.up.railway.app",
     "https://rank-edu.vercel.app",
     "https://*.fly.dev",
 ]

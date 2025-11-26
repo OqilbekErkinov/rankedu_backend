@@ -202,14 +202,42 @@ class ProfileViewSet(viewsets.ReadOnlyModelViewSet):
         parser_classes=[MultiPartParser, FormParser, JSONParser],
     )
     def update_me(self, request):
-        p = request.user.profile
+        """
+        Profilni yangilash (frontenddagi /profiles/update_me/ ga mos).
+        - full_name, university_short, university_full, major, xp, avatar yoziladi
+        - remove_avatar=true bo‘lsa avatar o‘chirib tashlanadi
+        """
+        profile = request.user.profile
+        data = request.data.copy()
+
+        # frontenddan kelyapti: { remove_avatar: true }
+        remove_avatar = data.pop("remove_avatar", None)
+
         serializer = ProfileSerializer(
-            p, data=request.data, partial=True, context={"request": request}
+            profile, data=data, partial=True, context={"request": request}
         )
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        profile = serializer.save()
+
+        # agar remove_avatar flag bo‘lsa – faylni o‘chirib yuboramiz
+        flag = False
+        if isinstance(remove_avatar, str):
+            flag = remove_avatar.lower() in ["1", "true", "yes", "on"]
+        elif isinstance(remove_avatar, bool):
+            flag = remove_avatar
+
+        if flag:
+            if getattr(profile, "avatar", None):
+                profile.avatar.delete(save=False)
+            profile.avatar = None
+            profile.save(update_fields=["avatar"])
+
+        # yangilangan profilni qaytaramiz
+        out = ProfileSerializer(profile, context={"request": request})
+        return Response(out.data)
+
 
 
 # Messages
@@ -292,20 +320,15 @@ class BadgeViewSet(viewsets.ModelViewSet):
                 uid = int(user_id)
                 qs = qs.filter(user__id=uid)
             except (ValueError, TypeError):
-                try:
-                    uid = uuid.UUID(user_id)
-                    qs = qs.filter(user__id=str(uid))
-                except Exception:
-                    qs = qs.filter(user__id=user_id)
+                qs = qs.filter(user__id=user_id)
         return qs
 
     def perform_create(self, serializer):
-        # user clientdan emas, token bo'yicha olinadi
         serializer.save(user=self.request.user)
 
     def perform_update(self, serializer):
-        # yangilaganda ham userni request.user ga tenglab qo'yamiz
         serializer.save(user=self.request.user)
+
 
 
 # Resume upload

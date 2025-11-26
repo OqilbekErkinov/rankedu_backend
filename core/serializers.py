@@ -1,6 +1,8 @@
+# core/serializers.py
 from rest_framework import serializers
 from django.contrib.auth.models import User
 from .models import Profile, Badge, Message, Resume
+import json
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -10,23 +12,27 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class ProfileSerializer(serializers.ModelSerializer):
-    # nested user info
-    user = UserSerializer(read_only=True)
+    """
+    Profile uchun serializer.
 
-    # convenience / frontend-friendly fields (computed)
+    - user -> nested (read only)
+    - user_id, avatar_url -> computed
+    - full_name, university_short, university_full, major -> ODDIY yoziladigan fieldlar
+      (endi read-only emas, PATCH/PUT orqali yangilanishi mumkin)
+    """
+
+    user = UserSerializer(read_only=True)
     user_id = serializers.SerializerMethodField()
     avatar_url = serializers.SerializerMethodField()
-    university_short = serializers.SerializerMethodField()
-    university_full = serializers.SerializerMethodField()
-    full_name = serializers.SerializerMethodField()
-    major = serializers.SerializerMethodField()
 
     class Meta:
         model = Profile
-        # hamma fieldlarni olamiz – noto‘g‘ri nom yozib yubormaslik uchun
+        # modeldagi hamma fieldlar + bizning qo‘shimcha fieldlar
         fields = "__all__"
-        read_only_fields = ("user", "user_id", "avatar_url", "full_name")
+        # faqat mana bular read-only bo‘lsin
+        read_only_fields = ("user", "user_id", "avatar_url")
 
+    # ---- helperlar ----
     def get_user_id(self, obj):
         try:
             return obj.user.id
@@ -34,18 +40,23 @@ class ProfileSerializer(serializers.ModelSerializer):
             return getattr(obj, "user_id", None)
 
     def get_avatar_url(self, obj):
+        """
+        avatar fayl bo‘lsa -> .url
+        yo‘q bo‘lsa avatar_url/ avatarUrl kabi boshqa attr yoki metani ishlatadi
+        """
         request = (
             self.context.get("request") if isinstance(self.context, dict) else None
         )
         url = None
 
+        # 1) modeldagi ImageField
         if hasattr(obj, "avatar") and getattr(obj, "avatar"):
             try:
-                # FieldFile bo'lsa, url atributidan olamiz
                 url = obj.avatar.url
             except Exception:
                 url = getattr(obj, "avatar", None)
 
+        # 2) boshqa attr / meta dan olish
         if not url:
             url = getattr(obj, "avatar_url", None) or getattr(obj, "avatarUrl", None)
             if callable(url):
@@ -54,73 +65,76 @@ class ProfileSerializer(serializers.ModelSerializer):
                 except Exception:
                     url = None
 
+        # 3) relative bo‘lsa absolute qilamiz
         if url and request and isinstance(url, str) and url.startswith("/"):
             return request.build_absolute_uri(url)
         return url
 
-    def _first_existing_attr(self, obj, candidates):
-        for name in candidates:
-            if hasattr(obj, name):
-                v = getattr(obj, name)
-                if v not in (None, ""):
-                    return v
+    def to_representation(self, obj):
+        """
+        Frontendga qaytishda, agar ba'zi fieldlar bo‘sh bo‘lsa,
+        fallback qiymatlarni qo‘shib yuboramiz (masalan full_name).
+        Yozish jarayoniga halal bermaydi.
+        """
+        data = super().to_representation(obj)
+
+        # full_name bo‘sh bo‘lsa user'dan yig‘ib beramiz
+        if not data.get("full_name"):
+            user = getattr(obj, "user", None)
+            if user:
+                fn = (getattr(user, "first_name", "") or "").strip()
+                ln = (getattr(user, "last_name", "") or "").strip()
+                full = f"{fn} {ln}".strip()
+                if not full:
+                    full = (
+                        getattr(user, "username", "")
+                        or (getattr(user, "email", "") or "").split("@")[0]
+                    )
+                data["full_name"] = full
+
+        # agar modelda university_short / full / major fieldlari bo‘sh bo‘lsa,
+        # ixtiyoriy meta'dan yoki boshqa attrdan olishga harakat qilamiz (bo‘lsa-bo‘lmasa)
         meta = getattr(obj, "meta", None)
         if isinstance(meta, dict):
-            for name in candidates:
-                if meta.get(name):
-                    return meta[name]
-        return None
+            if not data.get("university_short"):
+                data["university_short"] = (
+                    meta.get("university_short")
+                    or meta.get("universityShort")
+                    or meta.get("university")
+                    or meta.get("school")
+                    or ""
+                )
+            if not data.get("university_full"):
+                data["university_full"] = (
+                    meta.get("university_full")
+                    or meta.get("universityFull")
+                    or meta.get("university_name")
+                    or meta.get("university")
+                    or ""
+                )
+            if not data.get("major"):
+                data["major"] = (
+                    meta.get("major")
+                    or meta.get("speciality")
+                    or meta.get("specialization")
+                    or meta.get("field")
+                    or meta.get("degree")
+                    or ""
+                )
 
-    def get_university_short(self, obj):
-        return self._first_existing_attr(
-            obj,
-            [
-                "university_short",
-                "universityShort",
-                "university_short_name",
-                "university",
-                "school",
-            ],
-        )
-
-    def get_university_full(self, obj):
-        return self._first_existing_attr(
-            obj,
-            [
-                "university_full",
-                "universityFull",
-                "university_full_name",
-                "university_name",
-                "university",
-            ],
-        )
-
-    def get_full_name(self, obj):
-        candidates = ["full_name", "fullname", "name"]
-        val = self._first_existing_attr(obj, candidates)
-        if val:
-            return val
-        user = getattr(obj, "user", None)
-        if user:
-            fn = (getattr(user, "first_name", "") or "").strip()
-            ln = (getattr(user, "last_name", "") or "").strip()
-            full = f"{fn} {ln}".strip()
-            if full:
-                return full
-            return getattr(user, "username", None) or (
-                getattr(user, "email", "") or ""
-            ).split("@")[0]
-        return None
-
-    def get_major(self, obj):
-        return self._first_existing_attr(
-            obj, ["major", "speciality", "specialization", "field", "degree"]
-        )
+        return data
 
 
 class BadgeSerializer(serializers.ModelSerializer):
-    # user'ni frontdan yubormaymiz, backend o'zi qo'yadi
+    # user – faqat o‘qish uchun, create/update da viewset o‘zi qo‘yadi
     user = serializers.PrimaryKeyRelatedField(read_only=True)
+
+    # Faylni faqat yozishda qabul qilamiz, javobda ko‘rsatmaymiz
+    proof = serializers.FileField(
+        write_only=True, required=False, allow_null=True
+    )
+
+    # Frontend uchun ko‘rinadigan URL
     proof_url = serializers.SerializerMethodField()
 
     class Meta:
@@ -132,58 +146,65 @@ class BadgeSerializer(serializers.ModelSerializer):
             "xp_count",
             "category",
             "meta",
-            "proof",
+            "proof",        # write_only
             "created_at",
-            "proof_url",
+            "proof_url",    # read_only URL
         )
-        read_only_fields = ("id", "user", "created_at", "proof_url")
+        extra_kwargs = {
+            "meta": {"required": False, "allow_null": True},
+        }
 
     def get_proof_url(self, obj):
         """
-        Faylni o'qib, decode qilmaymiz – faqat URL qaytaramiz.
-        Shunda binary fayl tufayli UnicodeDecodeError chiqmaydi.
+        Faylga havola qaytaramiz:
+        - Agar FileField bo‘lsa: .url dan foydalanamiz
+        - Agar eski ma'lumotlarda 'proof' maydoni bytes / str bo‘lsa, str() qilamiz
         """
         request = (
             self.context.get("request") if isinstance(self.context, dict) else None
         )
 
-        url = None
-
-        # proof -> ImageField/FileField deb faraz qilamiz
-        proof_field = getattr(obj, "proof", None)
-        if proof_field:
+        f = getattr(obj, "proof", None)
+        if not f:
+            # ehtimol modelda alohida proof_url maydoni bo‘lishi mumkin:
+            alt = getattr(obj, "proof_url", None)
+            if alt:
+                url = str(alt)
+            else:
+                return None
+        else:
+            # FileField bo‘lsa
             try:
-                # FieldFile bo'lsa
-                url = proof_field.url
+                if hasattr(f, "url"):
+                    url = f.url
+                else:
+                    url = str(f)
             except Exception:
-                # ehtimol oddiy string
-                url = str(proof_field)
+                url = str(f)
 
-        # Agar modelda alohida proof_url property bo'lsa – undan ham foydalansak bo'ladi
-        if not url:
-            candidate = getattr(obj, "proof_url", None)
-            if callable(candidate):
-                try:
-                    url = candidate()
-                except Exception:
-                    url = None
-            elif isinstance(candidate, str):
-                url = candidate
-
-        if url and request and isinstance(url, str) and url.startswith("/"):
+        # Absolyut URL ga aylantirish
+        if request and isinstance(url, str) and url.startswith("/"):
             return request.build_absolute_uri(url)
         return url
 
+    def to_representation(self, instance):
+        """
+        Har ehtimolga qarshi, serializer chiqargan ma'lumot ichida
+        bytes / memoryview qolsa, ularni str() ga aylantirib yuboramiz,
+        shunda json.dumps(...) UTF-8 decode xatosi bermaydi.
+        """
+        rep = super().to_representation(instance)
+        for key, value in list(rep.items()):
+            if isinstance(value, (bytes, bytearray, memoryview)):
+                try:
+                    rep[key] = value.decode("utf-8", errors="ignore")
+                except Exception:
+                    rep[key] = str(value)
+        return rep
+
+
 
 class MessageSerializer(serializers.ModelSerializer):
-    """
-    Xabarlar uchun serializer.
-
-    - Frontend POST da `to_id` yoki `to` yuborib yuborsa ham, bu yerda `to_user`ga
-      avtomatik çevriladi.
-    - Shuningdek `body`, `message`, `content` kelib qolsa, `text`ga map qilinadi.
-    """
-
     # o‘qishda nested user ma’lumot
     from_user = UserSerializer(read_only=True)
     to_user_detail = UserSerializer(source="to_user", read_only=True)
@@ -208,24 +229,17 @@ class MessageSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "from_user", "created_at", "read")
 
     def to_internal_value(self, data):
-        """
-        Kelayotgan requestdagi nomlarni normalize qiladi:
-        - to_id / to  -> to_user
-        - body / message / content -> text
-        """
         if hasattr(data, "copy"):
             data = data.copy()
         else:
             data = dict(data)
 
-        # to_user nomini normalize qilish
         if "to_user" not in data:
             for key in ("to_id", "to", "receiver", "toUser"):
                 if key in data and data.get(key):
                     data["to_user"] = data.get(key)
                     break
 
-        # text nomini normalize qilish
         if "text" not in data:
             for key in ("body", "message", "msg", "content"):
                 if key in data and data.get(key):
@@ -235,12 +249,6 @@ class MessageSerializer(serializers.ModelSerializer):
         return super().to_internal_value(data)
 
     def to_representation(self, instance):
-        """
-        Frontendga qulay bo‘lishi uchun:
-        - from_id
-        - to_id
-        nomli soddaroq fieldlarni ham qo‘shib yuboramiz.
-        """
         rep = super().to_representation(instance)
         rep["from_id"] = instance.from_user_id
         rep["to_id"] = instance.to_user_id
@@ -253,7 +261,6 @@ class ResumeSerializer(serializers.ModelSerializer):
     class Meta:
         model = Resume
         fields = ("id", "user", "filename", "file", "file_url", "created_at")
-        read_only_fields = ("id", "user", "created_at", "file_url")
 
     def get_file_url(self, obj):
         request = (

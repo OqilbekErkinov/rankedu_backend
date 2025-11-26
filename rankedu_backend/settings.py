@@ -157,11 +157,13 @@ ALLOWED_HOSTS = [
     "127.0.0.1",
     "0.0.0.0",
     "rankedu-backend-wsmj-g.fly.dev",  # backend domen
+    "rankedu-backend-production.up.railway.app",
     "rank-edu.vercel.app",             # frontend domen
 ]
 
 CSRF_TRUSTED_ORIGINS = [
     "https://rankedu-backend-wsmj-g.fly.dev",
+    "rankedu-backend-production.up.railway.app",
     "https://rank-edu.vercel.app",
     "https://*.fly.dev",
 ]

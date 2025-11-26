@@ -29,9 +29,20 @@ SECRET_KEY = 'django-insecure-$7_5oflwiq#ky4y)$bb%ihrh3owc9m#9k=td+7-9h)3_h02cvc
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ["*"]
+ALLOWED_HOSTS = [
+    "localhost",
+    "127.0.0.1",
+    "0.0.0.0",
+    "rankedu-backend-wsmj-g.fly.dev",
+    "rank-edu.vercel.app",   # frontend domening
+]
+
 # ALLOWED_HOSTS = os.getenv("127.0.0.1", "localhost").split(",")
 CORS_ALLOW_ALL_ORIGINS = True
+CSRF_TRUSTED_ORIGINS = [
+    "https://rankedu-backend-wsmj-g.fly.dev",
+    "https://rank-edu.vercel.app",
+]
 
 # Application definition
 

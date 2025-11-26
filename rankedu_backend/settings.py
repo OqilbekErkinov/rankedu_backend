@@ -42,6 +42,7 @@ CORS_ALLOW_ALL_ORIGINS = True
 CSRF_TRUSTED_ORIGINS = [
     "https://rankedu-backend-wsmj-g.fly.dev",
     "https://rank-edu.vercel.app",
+    "https://*.fly.dev",
 ]
 
 # Application definition

@@ -2,6 +2,14 @@ from rest_framework import serializers
 from django.contrib.auth.models import User
 from .models import Profile, Badge, Message, Resume
 from django.contrib.auth.password_validation import validate_password
+from django.dispatch import receiver
+from django.db.models import Sum
+from django.db.models.signals import post_save, post_delete
+
+@receiver(post_save, sender=User)
+def create_user_profile(sender, instance, created, **kwargs):
+    if created:
+        Profile.objects.create(user=instance)
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
@@ -48,3 +56,16 @@ class ResumeSerializer(serializers.ModelSerializer):
         if obj.file and hasattr(obj.file, "url"):
             return request.build_absolute_uri(obj.file.url)
         return None
+
+
+@receiver([post_save, post_delete], sender=Badge)
+def update_user_xp(sender, instance, **kwargs):
+    user = instance.user
+
+    total_xp = Badge.objects.filter(user=user).aggregate(
+        total=Sum("xp_count")
+    )["total"] or 0
+
+    profile = user.profile
+    profile.xp = total_xp
+    profile.save()

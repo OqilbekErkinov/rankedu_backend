@@ -1,0 +1,10 @@
+{% extends "admin/change_list.html" %}
+
+{% block object-tools %}
+    {{ block.super }}
+    <li style="display: flex; flex-direction: column; margin-top: 6rem; position: absolute; right: 1.25rem;">
+        <a href="statistics/" class="button" style="background:#0d6efd;color:white; padding: 0.6rem; border-radius: 0.6rem">
+            📊 Statistics
+        </a>
+    </li>
+{% endblock %}

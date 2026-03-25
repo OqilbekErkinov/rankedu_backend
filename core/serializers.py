@@ -1,9 +1,24 @@
 # core/serializers.py
 from rest_framework import serializers
 from django.contrib.auth.models import User
-from .models import Profile, Badge, Message, Resume
+from .models import (
+    Profile, Badge, Message, Resume, Faculty, Major,
+    SocialAchievement, Scholarship, ScholarshipRequirement,
+    ScholarshipApplication, Announcement)
 import json
 
+from .computingxp import compute_xp
+
+
+class FacultySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Faculty
+        fields = '__all__'
+
+class MajorSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Major
+        fields = '__all__'
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
@@ -12,195 +27,71 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class ProfileSerializer(serializers.ModelSerializer):
-    """
-    Profile uchun serializer.
-
-    - user -> nested (read only)
-    - user_id, avatar_url -> computed
-    - full_name, university_short, university_full, major -> ODDIY yoziladigan fieldlar
-      (endi read-only emas, PATCH/PUT orqali yangilanishi mumkin)
-    """
-
     user = UserSerializer(read_only=True)
     user_id = serializers.SerializerMethodField()
     avatar_url = serializers.SerializerMethodField()
 
+    # Frontendda nomlarni ko'rish uchun (Read-only)
+    faculty_name = serializers.CharField(source='faculty.name', read_only=True)
+    major_name = serializers.CharField(source='major.name', read_only=True)
+
     class Meta:
         model = Profile
-        # modeldagi hamma fieldlar + bizning qo‘shimcha fieldlar
         fields = "__all__"
-        # faqat mana bular read-only bo‘lsin
-        read_only_fields = ("user", "user_id", "avatar_url")
+        read_only_fields = ("user", "user_id", "avatar_url", "xp")
 
-    # ---- helperlar ----
     def get_user_id(self, obj):
-        try:
-            return obj.user.id
-        except Exception:
-            return getattr(obj, "user_id", None)
+        return obj.user.id
 
     def get_avatar_url(self, obj):
+        request = self.context.get("request")
+        if obj.avatar:
+            url = obj.avatar.url
+            if request:
+                return request.build_absolute_uri(url)
+            return url
+        return None
+
+    def update(self, instance, validated_data):
         """
-        avatar fayl bo‘lsa -> .url
-        yo‘q bo‘lsa avatar_url/ avatarUrl kabi boshqa attr yoki metani ishlatadi
+        ForeignKey (Faculty va Major) ID orqali keladi.
+        Django buni avtomatik tushunishi uchun super().update ishlatamiz.
         """
-        request = (
-            self.context.get("request") if isinstance(self.context, dict) else None
-        )
-        url = None
+        # Faqat kerakli maydonlarni instance ga o'zlashtiramiz
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
 
-        # 1) modeldagi ImageField
-        if hasattr(obj, "avatar") and getattr(obj, "avatar"):
-            try:
-                url = obj.avatar.url
-            except Exception:
-                url = getattr(obj, "avatar", None)
-
-        # 2) boshqa attr / meta dan olish
-        if not url:
-            url = getattr(obj, "avatar_url", None) or getattr(obj, "avatarUrl", None)
-            if callable(url):
-                try:
-                    url = url()
-                except Exception:
-                    url = None
-
-        # 3) relative bo‘lsa absolute qilamiz
-        if url and request and isinstance(url, str) and url.startswith("/"):
-            return request.build_absolute_uri(url)
-        return url
+        instance.save()
+        return instance
 
     def to_representation(self, obj):
-        """
-        Frontendga qaytishda, agar ba'zi fieldlar bo‘sh bo‘lsa,
-        fallback qiymatlarni qo‘shib yuboramiz (masalan full_name).
-        Yozish jarayoniga halal bermaydi.
-        """
         data = super().to_representation(obj)
-
-        # full_name bo‘sh bo‘lsa user'dan yig‘ib beramiz
+        # Agar ism bo'sh bo'lsa, username ni qaytaramiz
         if not data.get("full_name"):
-            user = getattr(obj, "user", None)
-            if user:
-                fn = (getattr(user, "first_name", "") or "").strip()
-                ln = (getattr(user, "last_name", "") or "").strip()
-                full = f"{fn} {ln}".strip()
-                if not full:
-                    full = (
-                        getattr(user, "username", "")
-                        or (getattr(user, "email", "") or "").split("@")[0]
-                    )
-                data["full_name"] = full
-
-        # agar modelda university_short / full / major fieldlari bo‘sh bo‘lsa,
-        # ixtiyoriy meta'dan yoki boshqa attrdan olishga harakat qilamiz (bo‘lsa-bo‘lmasa)
-        meta = getattr(obj, "meta", None)
-        if isinstance(meta, dict):
-            if not data.get("university_short"):
-                data["university_short"] = (
-                    meta.get("university_short")
-                    or meta.get("universityShort")
-                    or meta.get("university")
-                    or meta.get("school")
-                    or ""
-                )
-            if not data.get("university_full"):
-                data["university_full"] = (
-                    meta.get("university_full")
-                    or meta.get("universityFull")
-                    or meta.get("university_name")
-                    or meta.get("university")
-                    or ""
-                )
-            if not data.get("major"):
-                data["major"] = (
-                    meta.get("major")
-                    or meta.get("speciality")
-                    or meta.get("specialization")
-                    or meta.get("field")
-                    or meta.get("degree")
-                    or ""
-                )
-
+            data["full_name"] = obj.user.get_full_name() or obj.user.username
         return data
 
-
 class BadgeSerializer(serializers.ModelSerializer):
-    # user – faqat o‘qish uchun, create/update da viewset o‘zi qo‘yadi
-    user = serializers.PrimaryKeyRelatedField(read_only=True)
-
-    # Faylni faqat yozishda qabul qilamiz, javobda ko‘rsatmaymiz
-    proof = serializers.FileField(
-        write_only=True, required=False, allow_null=True
-    )
-
-    # Frontend uchun ko‘rinadigan URL
-    proof_url = serializers.SerializerMethodField()
-
     class Meta:
         model = Badge
-        fields = (
-            "id",
-            "user",
-            "title",
-            "xp_count",
-            "category",
-            "meta",
-            "proof",        # write_only
-            "created_at",
-            "proof_url",    # read_only URL
-        )
-        extra_kwargs = {
-            "meta": {"required": False, "allow_null": True},
-        }
+        fields = "__all__"
+        read_only_fields = ["user", "xp_count"]
 
-    def get_proof_url(self, obj):
-        """
-        Faylga havola qaytaramiz:
-        - Agar FileField bo‘lsa: .url dan foydalanamiz
-        - Agar eski ma'lumotlarda 'proof' maydoni bytes / str bo‘lsa, str() qilamiz
-        """
-        request = (
-            self.context.get("request") if isinstance(self.context, dict) else None
-        )
+    def create(self, validated_data):
+        category = validated_data.get("category")
+        meta = validated_data.get("meta", {})
 
-        f = getattr(obj, "proof", None)
-        if not f:
-            # ehtimol modelda alohida proof_url maydoni bo‘lishi mumkin:
-            alt = getattr(obj, "proof_url", None)
-            if alt:
-                url = str(alt)
-            else:
-                return None
-        else:
-            # FileField bo‘lsa
-            try:
-                if hasattr(f, "url"):
-                    url = f.url
-                else:
-                    url = str(f)
-            except Exception:
-                url = str(f)
+        validated_data["xp_count"] = compute_xp(category, meta)
 
-        # Absolyut URL ga aylantirish
-        if request and isinstance(url, str) and url.startswith("/"):
-            return request.build_absolute_uri(url)
-        return url
+        return super().create(validated_data)
 
-    def to_representation(self, instance):
-        """
-        Har ehtimolga qarshi, serializer chiqargan ma'lumot ichida
-        bytes / memoryview qolsa, ularni str() ga aylantirib yuboramiz,
-        shunda json.dumps(...) UTF-8 decode xatosi bermaydi.
-        """
-        rep = super().to_representation(instance)
-        for key, value in list(rep.items()):
-            if isinstance(value, (bytes, bytearray, memoryview)):
-                try:
-                    rep[key] = value.decode("utf-8", errors="ignore")
-                except Exception:
-                    rep[key] = str(value)
-        return rep
+    def update(self, instance, validated_data):
+        category = validated_data.get("category", instance.category)
+        meta = validated_data.get("meta", instance.meta)
+
+        validated_data["xp_count"] = compute_xp(category, meta)
+
+        return super().update(instance, validated_data)
 
 
 
@@ -283,3 +174,43 @@ class RegisterSerializer(serializers.Serializer):
     fullname = serializers.CharField(required=False, allow_blank=True)
     phone = serializers.CharField(required=False, allow_blank=True)
     avatar = serializers.ImageField(required=False, allow_null=True)
+
+
+# IJTIMOIY FAOLLIK
+class SocialAchievementSerializer(serializers.ModelSerializer):
+    category_name = serializers.CharField(source='get_category_display', read_only=True)
+
+    class Meta:
+        model = SocialAchievement
+        fields = '__all__'
+        read_only_fields = ('user', 'score', 'academic_year', 'status', 'admin_note')
+
+
+
+class RequirementSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = ScholarshipRequirement
+        fields = ["id", "text"]
+
+
+class ScholarshipSerializer(serializers.ModelSerializer):
+
+    requirements = RequirementSerializer(many=True)
+
+    class Meta:
+        model = Scholarship
+        fields = "__all__"
+
+
+class ApplicationSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = ScholarshipApplication
+        fields = "__all__"
+        read_only_fields = ["user"]
+
+class AnnouncementSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Announcement
+        fields = '__all__'

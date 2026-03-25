@@ -37,6 +37,7 @@ CORS_ALLOW_ALL_ORIGINS = True
 # Application definition
 
 INSTALLED_APPS = [
+    "jazzmin",
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -65,7 +66,7 @@ ROOT_URLCONF = 'rankedu_backend.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -168,3 +169,41 @@ CSRF_TRUSTED_ORIGINS = [
     "https://*.fly.dev",
 ]
 
+JAZZMIN_SETTINGS = {
+    "site_title": "RankEdu Admin",
+    "site_header": "RankEdu",
+    "site_brand": "RankEdu Platform",
+    # "site_logo": "images/logo.png",   # agar logo bo‘lsa
+    "login_logo": None,
+    "login_logo_dark": None,
+
+    "welcome_sign": "Admin panelga xush kelibsiz 👋",
+    "copyright": "RankEdu © 2026",
+
+    # Top menu
+    "topmenu_links": [
+        {"name": "Bosh sahifa", "url": "/", "new_window": True},
+        {"model": "auth.User"},
+        {"app": "Asosiy"},
+    ],
+
+    # Sidebar
+    "show_sidebar": True,
+    "navigation_expanded": True,
+
+    # Icons (FontAwesome)
+    "icons": {
+        "auth": "fas fa-users-cog",
+        "auth.user": "fas fa-user",
+        "auth.Group": "fas fa-users",
+
+        "core.Profile": "fas fa-id-card",
+        "core.Badge": "fas fa-award",
+        "core.Message": "fas fa-envelope",
+        "core.Resume": "fas fa-file-pdf",
+    },
+
+    # UI tweaks
+    "theme": "default",
+    "dark_mode_theme": "darkly",
+}

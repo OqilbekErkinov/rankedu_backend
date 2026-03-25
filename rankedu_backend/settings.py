@@ -153,21 +153,9 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
 # === Fly.io override: admin & API uchun aniq hostlar ===
-ALLOWED_HOSTS = [
-    "localhost",
-    "127.0.0.1",
-    "0.0.0.0",
-    "rankedu-backend-wsmj-g.fly.dev",  # backend domen
-    "rankedu-backend-production.up.railway.app",
-    "rank-edu.vercel.app",             # frontend domen
-]
+ALLOWED_HOSTS = ['*']
 
-CSRF_TRUSTED_ORIGINS = [
-    "https://rankedu-backend-wsmj-g.fly.dev",
-    "https://rankedu-backend-production.up.railway.app",
-    "https://rank-edu.vercel.app",
-    "https://*.fly.dev",
-]
+CSRF_TRUSTED_ORIGINS = ['*']
 
 JAZZMIN_SETTINGS = {
     "site_title": "RankEdu Admin",
